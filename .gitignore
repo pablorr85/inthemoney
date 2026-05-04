@@ -1,0 +1,26 @@
+# Entornos virtuales
+venv/
+env/
+.env
+.venv
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+dist/
+build/
+.npm/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Logs
+*.log
+
+# Base de datos
+*.db
+history.db
