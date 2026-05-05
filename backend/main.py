@@ -31,9 +31,13 @@ scheduler = BackgroundScheduler()
 
 @app.on_event("startup")
 def start_scheduler():
+    # Ejecutamos en el minuto 15 de cada hora.
+    # Esto da 15 mins de "cortesía" a la bolsa española (abre a las 9:00, evaluamos a las 9:15)
+    # y 45 mins a la bolsa americana (abre a las 15:30, evaluamos a las 16:15)
+    # evitando así la altísima volatilidad de los primeros minutos de apertura.
     scheduler.add_job(
         run_bot_all_tickers,
-        trigger=CronTrigger(day_of_week="mon-fri", hour="9-22", minute=0),
+        trigger=CronTrigger(day_of_week="mon-fri", hour="9-22", minute=15),
         id="daily_trading_job",
         replace_existing=True
     )
