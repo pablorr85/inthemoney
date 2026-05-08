@@ -60,15 +60,32 @@ def execute_daily_trading_strategy(ticker: str):
     cruce_bajista = (sma9_prev >= sma21_prev) and (sma9_last < sma21_last)
     
     # 5. Ejecución
+    if not (cruce_alcista and rsi_last < 70) and not cruce_bajista:
+        print(f"[{ticker}] HOLD / SIN SEÑALES RELEVANTES.")
+        return
+
+    # Anti-Spam: Verificar si ya hay una orden en curso para no duplicarla
+    try:
+        open_orders = trading_client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=[ticker]))
+        if open_orders:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / Ya hay una orden pendiente. Esperando ejecución.")
+            return
+    except Exception:
+        pass
+
     # Para COMPRAR, exigimos el cruce alcista Y que el RSI sea menor a 70 (que no esté sobrecomprada/inflada).
     if cruce_alcista and rsi_last < 70:
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] SEÑAL DE COMPRA. RSI es {rsi_last:.2f}")
         try:
             # Control de posición abierta para no comprar duplicados
             try:
-                trading_client.get_open_position(ticker)
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / YA COMPRADA (Evitando duplicado).")
-                return
+                pos = trading_client.get_open_position(ticker)
+                if float(pos.qty) > 0:
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / YA COMPRADA (Evitando duplicado).")
+                    return
+                elif float(pos.qty) < 0:
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] PELIGRO / Posición Corta detectada. El bot no operará sobre ella.")
+                    return
             except Exception:
                 # Alpaca lanza una excepción si la posición no existe. Es el comportamiento esperado.
                 pass
@@ -100,18 +117,20 @@ def execute_daily_trading_strategy(ticker: str):
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] Orden de COMPRA enviada.")
         except Exception as e:
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] Error al enviar orden: {e}")
+            
     elif cruce_bajista:
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] SEÑAL DE VENTA.")
         try:
             # En "El Buen Bolsista" solo operamos en Largo (Long). Nunca nos ponemos cortos.
-            # Solo vendemos para cerrar una posición que ya tenemos.
-            trading_client.get_open_position(ticker) # Da error si no la tenemos
-            trading_client.close_position(ticker)
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] Orden de VENTA enviada (Se cerró la posición).")
+            # Solo vendemos para cerrar una posición que ya tenemos (y que sea en positivo/largo).
+            pos = trading_client.get_open_position(ticker) # Da error si no la tenemos
+            if float(pos.qty) > 0:
+                trading_client.close_position(ticker)
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] Orden de VENTA enviada (Se cerró la posición).")
+            else:
+                print(f"[{ticker}] HOLD / Posición Corta detectada. Se ignora la venta.")
         except Exception:
             print(f"[{ticker}] HOLD / No hay posición abierta para vender.")
-    else:
-        print(f"[{ticker}] HOLD / SIN SEÑALES RELEVANTES.")
 
 def run_bot_all_tickers():
     total_tickers = sum(len(config["tickers"]) for config in MARKETS.values())
