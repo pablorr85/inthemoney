@@ -9,6 +9,7 @@ function App() {
   const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isBotRunning, setIsBotRunning] = useState(false);
+  const [tickerInfo, setTickerInfo] = useState({});
 
   const fetchDashboardData = async () => {
     try {
@@ -48,6 +49,17 @@ function App() {
     }
   };
 
+  const handleMouseEnter = async (ticker) => {
+    if (!tickerInfo[ticker]) {
+      try {
+        const response = await axios.get(`http://localhost:8000/api/ticker/${ticker}/info`);
+        setTickerInfo(prev => ({...prev, [ticker]: response.data}));
+      } catch (err) {
+        setTickerInfo(prev => ({...prev, [ticker]: {name: ticker, exchange: "N/A", summary: "Error al cargar información"}}));
+      }
+    }
+  };
+
   if (loading) {
     return (
       <div className="loading-container">
@@ -63,43 +75,88 @@ function App() {
     <div className="container">
       <header className="header">
         <div className="header-titles">
-          <h1>🤖 InTheMoney Dashboard</h1>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+            <img src="/logo.png" alt="InTheMoney Logo" style={{ width: '48px', height: '48px', borderRadius: '12px', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' }} />
+            InTheMoney Dashboard
+          </h1>
           <p>Estrategia Diaria: SMA 9x21 | RSI &lt; 70</p>
         </div>
-        <button 
-          className="btn-run" 
-          onClick={handleRunBot}
-          disabled={isBotRunning}
-        >
-          {isBotRunning ? (
-            <>
-              <span className="spinner" style={{ width: '20px', height: '20px', borderWidth: '2px' }}></span>
-              Ejecutando...
-            </>
-          ) : (
-            <>🚀 Ejecutar Bot Ahora</>
-          )}
-        </button>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <button 
+            className="btn-export" 
+            onClick={() => window.open('http://127.0.0.1:8000/api/export/trades')}
+          >
+            📊 CSV (Hacienda)
+          </button>
+          <button 
+            className="btn-run" 
+            onClick={handleRunBot}
+            disabled={isBotRunning}
+          >
+            {isBotRunning ? (
+              <>
+                <span className="spinner" style={{ width: '20px', height: '20px', borderWidth: '2px' }}></span>
+                Ejecutando...
+              </>
+            ) : (
+              <>🚀 Ejecutar Bot</>
+            )}
+          </button>
+        </div>
       </header>
 
       {/* 1. Summary Cards */}
-      <div className="grid-cards">
-        <div className="card">
-          <h3>Balance Total</h3>
-          <h2>${summary?.balance_total?.toFixed(2) || '0.00'}</h2>
+      <div className="grid-cards detailed-summary">
+        <div className="card summary-card">
+          <h3>💰 Liquidez (Cash)</h3>
+          <h2 className="main-value">${summary?.cash?.toFixed(2) || '0.00'}</h2>
+          <p className="subtitle">Capital disponible en cuenta</p>
+          <div className="metric-row" style={{marginTop: '1rem'}}>
+            <span>Balance Total:</span>
+            <span>${summary?.balance_total?.toFixed(2) || '0.00'}</span>
+          </div>
         </div>
-        <div className="card">
-          <h3>P&L Diario</h3>
-          <h2 className={summary?.daily_pl >= 0 ? 'value-positive' : 'value-negative'}>
-            ${summary?.daily_pl?.toFixed(2) || '0.00'} 
-            <span className="percentage">
-              ({summary?.daily_pl_pct?.toFixed(2) || '0.00'}%)
+
+        <div className="card summary-card">
+          <h3>📈 Posiciones Abiertas</h3>
+          <div className="metric-row">
+            <span>Dinero Invertido:</span>
+            <span>${summary?.invested?.toFixed(2) || '0.00'}</span>
+          </div>
+          <div className="metric-row">
+            <span>Valor Actual:</span>
+            <span>${summary?.market_value?.toFixed(2) || '0.00'}</span>
+          </div>
+          <div className="metric-row highlight" style={{marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)'}}>
+            <span>Beneficio Latente:</span>
+            <span className={summary?.unrealized_pl >= 0 ? 'value-positive' : 'value-negative'} style={{fontWeight: 'bold'}}>
+              {summary?.unrealized_pl >= 0 ? '+' : ''}${summary?.unrealized_pl?.toFixed(2) || '0.00'}
             </span>
-          </h2>
+          </div>
         </div>
-        <div className="card">
-          <h3>Operaciones Cerradas</h3>
-          <h2>{totalTradesCount} {totalTradesCount === 0 && <span style={{fontSize: '0.9rem', color: 'var(--text-secondary)'}}>(Sin historial)</span>}</h2>
+
+        <div className="card summary-card">
+          <h3>🏦 P&L Realizado</h3>
+          <h2 className={summary?.realized_pl >= 0 ? 'value-positive' : 'value-negative'}>
+            {summary?.realized_pl >= 0 ? '+' : ''}${summary?.realized_pl?.toFixed(2) || '0.00'}
+          </h2>
+          <p className="subtitle">P&L Histórico (Operaciones Cerradas)</p>
+          <div className="metric-row highlight" style={{marginTop: '1rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)'}}>
+            <span>P&L de Hoy:</span>
+            <span className={summary?.daily_pl >= 0 ? 'value-positive' : 'value-negative'}>
+              {summary?.daily_pl >= 0 ? '+' : ''}${summary?.daily_pl?.toFixed(2) || '0.00'}
+            </span>
+          </div>
+        </div>
+
+        <div className="card summary-card">
+          <h3>⚡ Actividad del Bot</h3>
+          <h2 className="main-value">{totalTradesCount}</h2>
+          <p className="subtitle">Operaciones totales cerradas</p>
+          <div className="metric-row highlight" style={{marginTop: '1rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)'}}>
+            <span>Estado:</span>
+            <span className="value-positive">Activo y vigilando</span>
+          </div>
         </div>
       </div>
 
@@ -144,7 +201,26 @@ function App() {
             <tbody>
               {positions.length > 0 ? positions.map((pos) => (
                 <tr key={pos.ticker}>
-                  <td><strong>{pos.ticker}</strong></td>
+                  <td 
+                    className="ticker-cell"
+                    onMouseEnter={() => handleMouseEnter(pos.ticker)}
+                  >
+                    {pos.ticker}
+                    <div className="ticker-tooltip">
+                      {tickerInfo[pos.ticker] ? (
+                        <>
+                          <div className="tooltip-name">{tickerInfo[pos.ticker].name}</div>
+                          <div className="tooltip-exchange">{tickerInfo[pos.ticker].exchange}</div>
+                          <div className="tooltip-summary">{tickerInfo[pos.ticker].summary}</div>
+                        </>
+                      ) : (
+                        <div className="tooltip-loading">
+                          <span className="spinner" style={{width: '12px', height: '12px', borderWidth: '2px'}}></span>
+                          Cargando...
+                        </div>
+                      )}
+                    </div>
+                  </td>
                   <td>{pos.qty}</td>
                   <td>${pos.avg_entry_price.toFixed(2)}</td>
                   <td>${pos.current_price.toFixed(2)}</td>
