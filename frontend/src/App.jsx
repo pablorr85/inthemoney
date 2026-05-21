@@ -14,10 +14,10 @@ function App() {
   const fetchDashboardData = async () => {
     try {
       const [sumRes, posRes, tradesRes, historyRes] = await Promise.all([
-        axios.get('http://localhost:8000/api/portfolio/summary'),
-        axios.get('http://localhost:8000/api/positions'),
-        axios.get('http://localhost:8000/api/trades'),
-        axios.get('http://localhost:8000/api/portfolio/history')
+        axios.get('/api/portfolio/summary'),
+        axios.get('/api/positions'),
+        axios.get('/api/trades'),
+        axios.get('/api/portfolio/history')
       ]);
       
       setSummary(sumRes.data);
@@ -38,7 +38,7 @@ function App() {
   const handleRunBot = async () => {
     setIsBotRunning(true);
     try {
-      await axios.post('http://localhost:8000/api/bot/run');
+      await axios.post('/api/bot/run');
       // Refresh data after running
       await fetchDashboardData();
     } catch (error) {
@@ -52,7 +52,7 @@ function App() {
   const handleMouseEnter = async (ticker) => {
     if (!tickerInfo[ticker]) {
       try {
-        const response = await axios.get(`http://localhost:8000/api/ticker/${ticker}/info`);
+        const response = await axios.get(`/api/ticker/${ticker}/info`);
         setTickerInfo(prev => ({...prev, [ticker]: response.data}));
       } catch (err) {
         setTickerInfo(prev => ({...prev, [ticker]: {name: ticker, exchange: "N/A", summary: "Error al cargar información"}}));
@@ -84,7 +84,7 @@ function App() {
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <button 
             className="btn-export" 
-            onClick={() => window.open('http://127.0.0.1:8000/api/export/trades')}
+            onClick={() => window.open('/api/export/trades')}
           >
             📊 CSV (Hacienda)
           </button>
