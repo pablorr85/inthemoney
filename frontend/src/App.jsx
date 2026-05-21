@@ -81,7 +81,7 @@ function App() {
           </h1>
           <p>Estrategia Diaria: SMA 9x21 | RSI &lt; 75</p>
         </div>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+        <div className="header-actions">
           <button 
             className="btn-export" 
             onClick={() => window.open('/api/export/trades')}

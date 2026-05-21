@@ -42,11 +42,28 @@ body {
   margin-bottom: 40px;
 }
 
+.header-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
 @media (max-width: 768px) {
   .header {
     flex-direction: column;
     align-items: flex-start;
     gap: 20px;
+  }
+  
+  .header-actions {
+    flex-direction: column;
+    width: 100%;
+    align-items: stretch;
+  }
+  
+  .btn-run, .btn-export {
+    width: 100%;
+    justify-content: center;
   }
 }
 
@@ -236,6 +253,24 @@ body {
 .detailed-summary {
   grid-template-columns: repeat(4, 1fr);
   margin-bottom: 40px;
+}
+
+@media (max-width: 1024px) {
+  .detailed-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .detailed-summary {
+    grid-template-columns: 1fr;
+  }
+  .main-value {
+    font-size: 1.8rem;
+  }
+  .chart-card {
+    height: 300px;
+  }
 }
 
 .summary-card {
