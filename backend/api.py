@@ -69,6 +69,7 @@ def get_portfolio_summary():
         positions = trading_client.get_all_positions()
         unrealized_pl = sum(float(p.unrealized_pl) for p in positions)
         invested = sum(float(p.avg_entry_price) * float(p.qty) for p in positions)
+        unrealized_pl_pct = (unrealized_pl / invested) * 100 if invested > 0 else 0
         
         # Approximate realized P/L assuming 100k starting balance (Alpaca Paper Default)
         realized_pl = equity - 100000 - unrealized_pl
@@ -84,6 +85,7 @@ def get_portfolio_summary():
             "market_value": market_value,
             "invested": invested,
             "unrealized_pl": unrealized_pl,
+            "unrealized_pl_pct": unrealized_pl_pct,
             "realized_pl": realized_pl,
             "daily_pl": daily_pl,
             "daily_pl_pct": daily_pl_pct,

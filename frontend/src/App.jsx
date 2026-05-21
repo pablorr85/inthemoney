@@ -79,7 +79,7 @@ function App() {
             <img src="/logo.png" alt="InTheMoney Logo" style={{ width: '48px', height: '48px', borderRadius: '12px', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' }} />
             InTheMoney Dashboard
           </h1>
-          <p>Estrategia Diaria: SMA 9x21 | RSI &lt; 70</p>
+          <p>Estrategia Diaria: SMA 9x21 | RSI &lt; 75</p>
         </div>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <button 
@@ -127,10 +127,10 @@ function App() {
             <span>Valor Actual:</span>
             <span>${summary?.market_value?.toFixed(2) || '0.00'}</span>
           </div>
-          <div className="metric-row highlight" style={{marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)'}}>
+          <div className="metric-row highlight" style={{marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)', color: summary?.unrealized_pl >= 0 ? 'var(--success)' : 'var(--danger)'}}>
             <span>Beneficio Latente:</span>
-            <span className={summary?.unrealized_pl >= 0 ? 'value-positive' : 'value-negative'} style={{fontWeight: 'bold'}}>
-              {summary?.unrealized_pl >= 0 ? '+' : ''}${summary?.unrealized_pl?.toFixed(2) || '0.00'}
+            <span style={{fontWeight: 'bold', color: summary?.unrealized_pl >= 0 ? 'var(--success)' : 'var(--danger)'}}>
+              {summary?.unrealized_pl >= 0 ? '+' : ''}${summary?.unrealized_pl?.toFixed(2) || '0.00'} ({summary?.unrealized_pl_pct >= 0 ? '+' : ''}{summary?.unrealized_pl_pct?.toFixed(2) || '0.00'}%)
             </span>
           </div>
         </div>
@@ -143,7 +143,7 @@ function App() {
           <p className="subtitle">P&L Histórico (Operaciones Cerradas)</p>
           <div className="metric-row highlight" style={{marginTop: '1rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)'}}>
             <span>P&L de Hoy:</span>
-            <span className={summary?.daily_pl >= 0 ? 'value-positive' : 'value-negative'}>
+            <span style={{ color: summary?.daily_pl >= 0 ? 'var(--success)' : 'var(--danger)' }}>
               {summary?.daily_pl >= 0 ? '+' : ''}${summary?.daily_pl?.toFixed(2) || '0.00'}
             </span>
           </div>
@@ -171,11 +171,36 @@ function App() {
           <ResponsiveContainer width="100%" height="85%">
             <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)"/>
-              <XAxis dataKey="name" axisLine={false} tickLine={false} stroke="#94a3b8" />
+              <XAxis 
+                dataKey="name" 
+                axisLine={false} 
+                tickLine={false} 
+                stroke="#94a3b8" 
+                tickFormatter={(tick) => {
+                  if (!tick) return '';
+                  const parts = tick.split('-');
+                  if (parts.length === 3) {
+                    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+                  }
+                  return tick;
+                }}
+                angle={-45}
+                textAnchor="end"
+                height={60}
+                tick={{ fontSize: 12 }}
+              />
               <YAxis axisLine={false} tickLine={false} domain={['auto', 'auto']} stroke="#94a3b8" />
               <Tooltip 
                 contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#f8fafc' }} 
                 itemStyle={{ color: '#60a5fa' }}
+                labelFormatter={(label) => {
+                  if (!label) return '';
+                  const parts = label.split('-');
+                  if (parts.length === 3) {
+                    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+                  }
+                  return label;
+                }}
                 formatter={(v) => [`$${v.toFixed(2)}`, 'Equity']}
               />
               <Line type="monotone" dataKey="equity" stroke="#60a5fa" strokeWidth={3} dot={{ r: 4, fill: '#60a5fa' }} activeDot={{ r: 8, fill: '#3b82f6' }}/>

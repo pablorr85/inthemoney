@@ -7,7 +7,7 @@ from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
 
 import database
 from client import trading_client
-from config import MARKETS
+from config import MARKETS, MAX_BUDGET_PER_TRADE
 
 def is_market_open(market_config: dict) -> bool:
     now = datetime.now()
@@ -49,6 +49,7 @@ def execute_daily_trading_strategy(ticker: str):
     sma9_last, sma21_last = last_row['SMA_9'], last_row['SMA_21']
     sma9_prev, sma21_prev = prev_row['SMA_9'], prev_row['SMA_21']
     rsi_last = last_row['RSI_14']
+    current_price = last_row['Close']
     
     # 4. Lógica de Cruce de Medias (La estrategia principal)
     # CRUCE ALCISTA (Golden Cross): La media rápida (9) cruza hacia arriba a la lenta (21).
@@ -60,7 +61,7 @@ def execute_daily_trading_strategy(ticker: str):
     cruce_bajista = (sma9_prev >= sma21_prev) and (sma9_last < sma21_last)
     
     # 5. Ejecución
-    if not (cruce_alcista and rsi_last < 70) and not cruce_bajista:
+    if not (cruce_alcista and rsi_last < 75) and not cruce_bajista:
         print(f"[{ticker}] HOLD / SIN SEÑALES RELEVANTES.")
         return
 
@@ -73,8 +74,8 @@ def execute_daily_trading_strategy(ticker: str):
     except Exception:
         pass
 
-    # Para COMPRAR, exigimos el cruce alcista Y que el RSI sea menor a 70 (que no esté sobrecomprada/inflada).
-    if cruce_alcista and rsi_last < 70:
+    # Para COMPRAR, exigimos el cruce alcista Y que el RSI sea menor a 75 (que no esté sobrecomprada/inflada).
+    if cruce_alcista and rsi_last < 75:
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] SEÑAL DE COMPRA. RSI es {rsi_last:.2f}")
         try:
             # Control de posición abierta para no comprar duplicados
@@ -102,19 +103,47 @@ def execute_daily_trading_strategy(ticker: str):
                 if last_sell:
                     days_since_sell = (datetime.now(timezone.utc) - last_sell[0].created_at).days
                     if days_since_sell <= 60:
-                        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / COOLDOWN FISCAL (Vendida hace {days_since_sell} días).")
-                        return
+                        # Fetch the last buy to check if it was a loss
+                        req_buy = GetOrdersRequest(
+                            status=QueryOrderStatus.CLOSED,
+                            symbols=[ticker],
+                            side=OrderSide.BUY,
+                            limit=1
+                        )
+                        last_buy = trading_client.get_orders(req_buy)
+                        
+                        if last_buy and last_sell[0].filled_avg_price and last_buy[0].filled_avg_price:
+                            sell_price = float(last_sell[0].filled_avg_price)
+                            buy_price = float(last_buy[0].filled_avg_price)
+                            
+                            if sell_price < buy_price:
+                                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / COOLDOWN FISCAL (Vendida con pérdida hace {days_since_sell} días).")
+                                return
+                            else:
+                                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] INFO / Recompra permitida (Venta anterior fue con ganancia).")
+                        else:
+                            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / COOLDOWN FISCAL (Vendida hace {days_since_sell} días).")
+                            return
             except Exception as e:
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] Error verificando cooldown: {e}")
 
+            if current_price > MAX_BUDGET_PER_TRADE:
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / Precio ({current_price:.2f}) supera el presupuesto máximo ({MAX_BUDGET_PER_TRADE:.2f}).")
+                return
+                
+            qty_to_buy = int(MAX_BUDGET_PER_TRADE // current_price)
+            if qty_to_buy <= 0:
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / Presupuesto insuficiente para comprar 1 acción.")
+                return
+
             req = MarketOrderRequest(
                 symbol=ticker,
-                qty=1,
+                qty=qty_to_buy,
                 side=OrderSide.BUY,
                 time_in_force=TimeInForce.GTC
             )
             trading_client.submit_order(req)
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] Orden de COMPRA enviada.")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] Orden de COMPRA enviada ({qty_to_buy} acciones).")
         except Exception as e:
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] Error al enviar orden: {e}")
             
