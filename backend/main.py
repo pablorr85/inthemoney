@@ -1,5 +1,7 @@
+import os
 from datetime import datetime
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -45,3 +47,10 @@ app.add_middleware(
 
 # Incluimos todas las rutas desde api.py
 app.include_router(api_router, prefix="/api")
+
+# Serve the frontend statically
+frontend_path = os.path.join(os.path.dirname(__file__), "../frontend/dist")
+if os.path.exists(frontend_path):
+    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
+else:
+    print(f"Warning: Frontend dist folder no encontrada en {frontend_path}")
