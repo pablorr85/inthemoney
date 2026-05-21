@@ -3,6 +3,5 @@ uvicorn==0.29.0
 yfinance
 alpaca-py
 pandas
-pandas-ta
 python-dotenv==1.0.1
 apscheduler==3.10.4

@@ -1,6 +1,5 @@
 import yfinance as yf
 import pandas as pd
-import pandas_ta as ta
 from datetime import datetime, timezone
 from alpaca.trading.requests import MarketOrderRequest, GetOrdersRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
@@ -32,12 +31,17 @@ def execute_daily_trading_strategy(ticker: str):
     # 2. Cálculos Técnicos (Indicadores)
     # SMA (Simple Moving Average): Media del precio de los últimos X días.
     # Usamos la de 9 días (rápida) y la de 21 días (lenta).
-    df.ta.sma(length=9, append=True)
-    df.ta.sma(length=21, append=True)
+    df['SMA_9'] = df['Close'].rolling(window=9).mean()
+    df['SMA_21'] = df['Close'].rolling(window=21).mean()
     
-    # RSI (Relative Strength Index): Mide si una acción ha subido demasiado rápido.
-    # Va de 0 a 100. Valores por encima de 70 indican "Sobrecompra" (peligro de caída).
-    df.ta.rsi(length=14, append=True)
+    # RSI (Relative Strength Index) calculation manually
+    delta = df['Close'].diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+    avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+    rs = avg_gain / avg_loss
+    df['RSI_14'] = 100 - (100 / (1 + rs))
     
     if len(df) < 22:
         raise Exception("Not enough data to calculate SMA/RSI")
