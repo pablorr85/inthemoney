@@ -19,10 +19,10 @@ scheduler = BackgroundScheduler()
 
 @app.on_event("startup")
 def start_scheduler():
-    # Ejecutamos en el minuto 15 de cada hora.
-    # Esto da 15 mins de "cortesía" a la bolsa española (abre a las 9:00, evaluamos a las 9:15)
-    # y 45 mins a la bolsa americana (abre a las 15:30, evaluamos a las 16:15)
-    # evitando así la altísima volatilidad de los primeros minutos de apertura.
+    # Run at the 15th minute of each hour.
+    # This provides a 15-minute "courtesy" buffer for the Spanish stock market (opens at 9:00, evaluated at 9:15)
+    # and a 45-minute buffer for the US market (opens at 15:30, evaluated at 16:15),
+    # thereby avoiding the high volatility of the opening minutes.
     scheduler.add_job(
         run_bot_all_tickers,
         trigger=CronTrigger(day_of_week="mon-fri", hour="9-22", minute=15),
@@ -30,12 +30,12 @@ def start_scheduler():
         replace_existing=True
     )
     scheduler.start()
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] APScheduler iniciado: Bot programado de 9:00 a 22:00 cada hora (L-V).")
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] APScheduler started: Bot scheduled from 9:00 to 22:00 hourly (M-F).")
 
 @app.on_event("shutdown")
 def shutdown_scheduler():
     scheduler.shutdown()
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] APScheduler apagado.")
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] APScheduler shutdown.")
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,7 +45,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Incluimos todas las rutas desde api.py
+# Include all routes from api.py
 app.include_router(api_router, prefix="/api")
 
 # Serve the frontend statically

@@ -28,7 +28,7 @@ def record_daily_equity(equity: float):
     )
     conn.commit()
     conn.close()
-    print(f"[DB] Equity registrada: {today} -> ${equity:.2f}")
+    print(f"[DB] Equity recorded: {today} -> ${equity:.2f}")
 
 def get_historical_equity(days: int = 90):
     """Return the last `days` records of equity, ordered chronologically."""

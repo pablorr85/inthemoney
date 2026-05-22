@@ -41,7 +41,7 @@ def get_ticker_info(ticker: str):
         sector_en = info.get("sector", "Sector Desconocido")
         sector_es = sector_map.get(sector_en, sector_en)
         
-        # Añadir la industria para dar más contexto
+        # Add the industry to provide more context
         industry = info.get("industry", "")
         summary = f"{sector_es}" + (f" ({industry})" if industry else "")
         
@@ -109,7 +109,7 @@ def get_positions():
             "unrealized_pl_pcnt": float(p.unrealized_plpc) * 100
         } for p in positions]
         
-        # Ordenar de mayor ganancia a mayor pérdida
+        # Sort from highest gain to highest loss
         pos_list.sort(key=lambda x: x["unrealized_pl"], reverse=True)
         return pos_list
     except Exception as e:
@@ -148,7 +148,7 @@ def export_trades():
         
         all_orders = []
         
-        # Bucle para obtener todas las órdenes del año (paginación de 500 en 500)
+        # Loop to fetch all orders of the year (paginating 500 at a time)
         while True:
             req = GetOrdersRequest(
                 status=QueryOrderStatus.CLOSED, 
@@ -165,13 +165,13 @@ def export_trades():
             if len(batch) < 500:
                 break
                 
-            # Alpaca devuelve en orden descendente, cogemos la fecha de la más antigua para la siguiente página
+            # Alpaca returns in descending order, we take the date of the oldest for the next page
             current_until = batch[-1].created_at
         
         output = io.StringIO()
         writer = csv.writer(output)
         
-        # Cabecera para Excel/Sheets
+        # Header for Excel/Sheets
         writer.writerow(["ID Orden", "Ticker", "Operación", "Cantidad", "Precio Medio Fill", "Estado", "Fecha (UTC)"])
         
         for o in all_orders:
@@ -203,7 +203,7 @@ def get_portfolio_history():
 
 @router.post("/bot/run")
 def run_bot_manually():
-    """Endpoint para ejecutar el bot manualmente y probarlo sin esperar al Cron Job"""
+    """Endpoint to run the bot manually and test it without waiting for the scheduled job."""
     results = run_bot_all_tickers()
     
     return {

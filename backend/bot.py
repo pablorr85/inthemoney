@@ -17,20 +17,20 @@ def is_market_open(market_config: dict) -> bool:
 
 def execute_daily_trading_strategy(ticker: str):
     """
-    Designed to be run by a daily Cron Job at 16:30.
+    Designed to be run hourly (Mon-Fri, hour 9-22 at minute 15) via APScheduler in main.py.
     """
 
     # 1. Download daily historical using yfinance. 
     # multi_level_index=False is required for latest yfinance to work with pandas-ta
-    df = yf.download(ticker, period="1y", interval="1d", multi_level_index=False)
+    df = yf.download(ticker, period="1y", interval="1d", multi_level_index=False, threads=False)
     
     # Check if empty
     if df.empty:
         raise Exception("No data found from yfinance")
         
-    # 2. Cálculos Técnicos (Indicadores)
-    # SMA (Simple Moving Average): Media del precio de los últimos X días.
-    # Usamos la de 9 días (rápida) y la de 21 días (lenta).
+    # 2. Technical Calculations (Indicators)
+    # SMA (Simple Moving Average): Average price of the last X days.
+    # We use the 9-day (fast) and 21-day (slow) SMAs.
     df['SMA_9'] = df['Close'].rolling(window=9).mean()
     df['SMA_21'] = df['Close'].rolling(window=21).mean()
     
@@ -49,53 +49,53 @@ def execute_daily_trading_strategy(ticker: str):
     last_row = df.iloc[-1]
     prev_row = df.iloc[-2]
     
-    # 3. Extraer valores clave de hoy y ayer
+    # 3. Extract key values from today and yesterday
     sma9_last, sma21_last = last_row['SMA_9'], last_row['SMA_21']
     sma9_prev, sma21_prev = prev_row['SMA_9'], prev_row['SMA_21']
     rsi_last = last_row['RSI_14']
     current_price = last_row['Close']
     
-    # 4. Lógica de Cruce de Medias (La estrategia principal)
-    # CRUCE ALCISTA (Golden Cross): La media rápida (9) cruza hacia arriba a la lenta (21).
-    # Significa que la tendencia a corto plazo es fuerte y está subiendo.
+    # 4. Moving Average Crossover Logic (Main Strategy)
+    # BULLISH CROSSOVER (Golden Cross): The fast SMA (9) crosses above the slow SMA (21).
+    # It indicates that the short-term trend is strong and rising.
     cruce_alcista = (sma9_prev <= sma21_prev) and (sma9_last > sma21_last)
     
-    # CRUCE BAJISTA (Death Cross): La media rápida (9) cruza hacia abajo a la lenta (21).
-    # Significa que la tendencia a corto plazo se debilita y empieza a caer.
+    # BEARISH CROSSOVER (Death Cross): The fast SMA (9) crosses below the slow SMA (21).
+    # It indicates that the short-term trend is weakening and starting to fall.
     cruce_bajista = (sma9_prev >= sma21_prev) and (sma9_last < sma21_last)
     
-    # 5. Ejecución
+    # 5. Execution
     if not (cruce_alcista and rsi_last < 75) and not cruce_bajista:
-        print(f"[{ticker}] HOLD / SIN SEÑALES RELEVANTES.")
+        print(f"[{ticker}] HOLD / NO RELEVANT SIGNALS.")
         return
 
-    # Anti-Spam: Verificar si ya hay una orden en curso para no duplicarla
+    # Anti-Spam: Check if there is already an active order to avoid duplication
     try:
         open_orders = trading_client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=[ticker]))
         if open_orders:
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / Ya hay una orden pendiente. Esperando ejecución.")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / Active order already exists. Waiting for execution.")
             return
     except Exception:
         pass
 
-    # Para COMPRAR, exigimos el cruce alcista Y que el RSI sea menor a 75 (que no esté sobrecomprada/inflada).
+    # To BUY, we require a bullish crossover AND the RSI to be below 75 (not overbought/inflated).
     if cruce_alcista and rsi_last < 75:
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] SEÑAL DE COMPRA. RSI es {rsi_last:.2f}")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] BUY SIGNAL. RSI is {rsi_last:.2f}")
         try:
-            # Control de posición abierta para no comprar duplicados
+            # Open position control to avoid duplicate purchases
             try:
                 pos = trading_client.get_open_position(ticker)
                 if float(pos.qty) > 0:
-                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / YA COMPRADA (Evitando duplicado).")
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / ALREADY BOUGHT (Avoiding duplicate).")
                     return
                 elif float(pos.qty) < 0:
-                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] PELIGRO / Posición Corta detectada. El bot no operará sobre ella.")
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] WARNING / Short position detected. The bot will not operate on it.")
                     return
             except Exception:
-                # Alpaca lanza una excepción si la posición no existe. Es el comportamiento esperado.
+                # Alpaca raises an exception if the position does not exist. This is the expected behavior.
                 pass
                 
-            # Control de Cooldown Fiscal (Regla 2 meses España)
+            # Tax Cooldown Control (Spanish 2-Month Rule)
             try:
                 req_sell = GetOrdersRequest(
                     status=QueryOrderStatus.CLOSED,
@@ -121,23 +121,23 @@ def execute_daily_trading_strategy(ticker: str):
                             buy_price = float(last_buy[0].filled_avg_price)
                             
                             if sell_price < buy_price:
-                                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / COOLDOWN FISCAL (Vendida con pérdida hace {days_since_sell} días).")
+                                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / TAX COOLDOWN (Sold with loss {days_since_sell} days ago).")
                                 return
                             else:
-                                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] INFO / Recompra permitida (Venta anterior fue con ganancia).")
+                                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] INFO / Rebuy allowed (Previous sale was profitable).")
                         else:
-                            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / COOLDOWN FISCAL (Vendida hace {days_since_sell} días).")
+                            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / TAX COOLDOWN (Sold {days_since_sell} days ago).")
                             return
             except Exception as e:
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] Error verificando cooldown: {e}")
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] Error checking cooldown: {e}")
 
             if current_price > MAX_BUDGET_PER_TRADE:
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / Precio ({current_price:.2f}) supera el presupuesto máximo ({MAX_BUDGET_PER_TRADE:.2f}).")
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / Price ({current_price:.2f}) exceeds the maximum budget ({MAX_BUDGET_PER_TRADE:.2f}).")
                 return
                 
             qty_to_buy = int(MAX_BUDGET_PER_TRADE // current_price)
             if qty_to_buy <= 0:
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / Presupuesto insuficiente para comprar 1 acción.")
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] HOLD / Insufficient budget to buy 1 share.")
                 return
 
             req = MarketOrderRequest(
@@ -147,50 +147,50 @@ def execute_daily_trading_strategy(ticker: str):
                 time_in_force=TimeInForce.GTC
             )
             trading_client.submit_order(req)
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] Orden de COMPRA enviada ({qty_to_buy} acciones).")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] BUY order submitted ({qty_to_buy} shares).")
         except Exception as e:
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] Error al enviar orden: {e}")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] Error submitting order: {e}")
             
     elif cruce_bajista:
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] SEÑAL DE VENTA.")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] SELL SIGNAL.")
         try:
-            # En "El Buen Bolsista" solo operamos en Largo (Long). Nunca nos ponemos cortos.
-            # Solo vendemos para cerrar una posición que ya tenemos (y que sea en positivo/largo).
-            pos = trading_client.get_open_position(ticker) # Da error si no la tenemos
+            # We only operate in Long positions. We never short.
+            # We only sell to close a position we already hold (long).
+            pos = trading_client.get_open_position(ticker) # Throws exception if we don't have it
             if float(pos.qty) > 0:
                 trading_client.close_position(ticker)
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] Orden de VENTA enviada (Se cerró la posición).")
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{ticker}] SELL order submitted (Position closed).")
             else:
-                print(f"[{ticker}] HOLD / Posición Corta detectada. Se ignora la venta.")
+                print(f"[{ticker}] HOLD / Short position detected. Ignoring sell signal.")
         except Exception:
-            print(f"[{ticker}] HOLD / No hay posición abierta para vender.")
+            print(f"[{ticker}] HOLD / No open position to sell.")
 
 def run_bot_all_tickers():
     total_tickers = sum(len(config["tickers"]) for config in MARKETS.values())
-    print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] === INICIANDO EJECUCIÓN DEL BOT PARA {total_tickers} ACTIVOS ===")
+    print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] === STARTING BOT EXECUTION FOR {total_tickers} ASSETS ===")
     
     results = []
     for market_key, config in MARKETS.items():
-        print(f"--- Procesando mercado: {config['name']} ---")
+        print(f"--- Processing market: {config['name']} ---")
         
-        # Validar horario a nivel de mercado completo en vez de por ticker
+        # Validate market hours at the market level instead of per ticker
         if not is_market_open(config):
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Mercado cerrado. Saltando sus {len(config['tickers'])} tickers.")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Market closed. Skipping its {len(config['tickers'])} tickers.")
             continue
             
         for t in config["tickers"]:
             try:
                 execute_daily_trading_strategy(t)
-                results.append({"ticker": t, "status": "procesado", "market": config['name']})
+                results.append({"ticker": t, "status": "processed", "market": config['name']})
             except Exception as e:
-                results.append({"ticker": t, "status": "error", "detalle": str(e), "market": config['name']})
+                results.append({"ticker": t, "status": "error", "details": str(e), "market": config['name']})
     
     # Record today's equity snapshot in the database after the run
     try:
         account = trading_client.get_account()
         database.record_daily_equity(float(account.equity))
     except Exception as e:
-        print(f"[DB] Error al guardar equity: {e}")
+        print(f"[DB] Error saving equity: {e}")
 
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] === EJECUCIÓN FINALIZADA ===")
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] === EXECUTION FINISHED ===")
     return results
