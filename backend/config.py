@@ -42,6 +42,7 @@ MARKETS = {
     #
     # "ES": {
     #     "name": "Bolsa Española (BME)",
+    #     "timezone": "Europe/Madrid",
     #     "open_hour": 9,
     #     "open_minute": 0,
     #     "close_hour": 17,
@@ -61,6 +62,7 @@ MARKETS = {
     # },
     # "FR": {
     #     "name": "Bolsa de París (Euronext)",
+    #     "timezone": "Europe/Paris",
     #     "open_hour": 9,
     #     "open_minute": 0,
     #     "close_hour": 17,
@@ -72,6 +74,7 @@ MARKETS = {
     # },
     # "DE": {
     #     "name": "Bolsa de Fráncfort (Xetra)",
+    #     "timezone": "Europe/Berlin",
     #     "open_hour": 9,
     #     "open_minute": 0,
     #     "close_hour": 17,

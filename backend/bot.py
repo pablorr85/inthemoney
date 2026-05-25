@@ -1,6 +1,7 @@
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from alpaca.trading.requests import MarketOrderRequest, GetOrdersRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
 
@@ -9,7 +10,14 @@ from client import trading_client
 from config import MARKETS, MAX_BUDGET_PER_TRADE
 
 def is_market_open(market_config: dict) -> bool:
-    now = datetime.now()
+    tz_name = market_config.get("timezone", "UTC")
+    tz = ZoneInfo(tz_name)
+    now = datetime.now(tz)
+    
+    # Do not operate on weekends (Saturday=5, Sunday=6)
+    if now.weekday() >= 5:
+        return False
+        
     current_time = now.hour * 60 + now.minute
     open_time = market_config["open_hour"] * 60 + market_config["open_minute"]
     close_time = market_config["close_hour"] * 60 + market_config["close_minute"]
