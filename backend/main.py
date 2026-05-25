@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,18 +20,22 @@ scheduler = BackgroundScheduler()
 
 @app.on_event("startup")
 def start_scheduler():
-    # Run at the 15th minute of each hour.
-    # This provides a 15-minute "courtesy" buffer for the Spanish stock market (opens at 9:00, evaluated at 9:15)
-    # and a 45-minute buffer for the US market (opens at 15:30, evaluated at 16:15),
-    # thereby avoiding the high volatility of the opening minutes.
+    # Run at the 15th minute of each hour during Wall Street market hours (10:15 AM to 3:15 PM New York Time).
+    # This provides a 45-minute "courtesy" buffer after market open (9:30 AM),
+    # thereby avoiding the extreme volatility of the opening minutes, and evaluates hourly.
     scheduler.add_job(
         run_bot_all_tickers,
-        trigger=CronTrigger(day_of_week="mon-fri", hour="9-22", minute=15),
+        trigger=CronTrigger(
+            day_of_week="mon-fri",
+            hour="10-15",
+            minute=15,
+            timezone=ZoneInfo("America/New_York")
+        ),
         id="daily_trading_job",
         replace_existing=True
     )
     scheduler.start()
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] APScheduler started: Bot scheduled from 9:00 to 22:00 hourly (M-F).")
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] APScheduler started: Bot scheduled from 10:15 to 15:15 hourly NY Time (M-F).")
 
 @app.on_event("shutdown")
 def shutdown_scheduler():
