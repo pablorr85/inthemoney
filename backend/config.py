@@ -7,6 +7,12 @@ API_KEY = os.getenv("ALPACA_API_KEY", "TU_API_KEY")
 SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "TU_API_SECRET")
 MAX_BUDGET_PER_TRADE = float(os.getenv("MAX_BUDGET_PER_TRADE", 5000))
 
+# Trading mode (True for Paper trading, False for Live real money)
+ALPACA_PAPER = os.getenv("ALPACA_PAPER", "True").lower() in ("true", "1", "yes")
+
+# Starting balance (defaults to 100000.0 for paper trading, but configurable for real money)
+STARTING_BALANCE = float(os.getenv("STARTING_BALANCE", 100000.0))
+
 MARKETS = {
     "US": {
         "name": "Wall Street (NYSE/NASDAQ)",

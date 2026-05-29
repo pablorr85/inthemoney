@@ -1,15 +1,11 @@
 from fastapi import APIRouter
 from fastapi.responses import Response
 from datetime import datetime
-import csv
-import io
-from alpaca.trading.requests import GetOrdersRequest
-from alpaca.trading.enums import QueryOrderStatus
+import yfinance as yf
 
 import database
-from client import trading_client
+from services import broker, tax_service
 from bot import run_bot_all_tickers
-import yfinance as yf
 
 router = APIRouter()
 
@@ -18,6 +14,7 @@ ticker_info_cache = {}
 
 @router.get("/ticker/{ticker}/info")
 def get_ticker_info(ticker: str):
+    """Retrieve basic profile info (name, exchange, sector) for a given ticker."""
     if ticker in ticker_info_cache:
         return ticker_info_cache[ticker]
     try:
@@ -52,75 +49,30 @@ def get_ticker_info(ticker: str):
         }
         ticker_info_cache[ticker] = data
         return data
-    except Exception as e:
+    except Exception:
         return {"name": ticker, "exchange": "N/A", "summary": "Info no disponible"}
 
 @router.get("/portfolio/summary")
 def get_portfolio_summary():
+    """Retrieve calculated summary of open balances, equity, and unrealized profit."""
     try:
-        account = trading_client.get_account()
-        balance = float(account.portfolio_value)
-        equity = float(account.equity)
-        last_equity = float(account.last_equity)
-        cash = float(account.cash)
-        market_value = float(account.long_market_value)
-        
-        # Fetch positions to calculate precise invested amount and unrealized P/L
-        positions = trading_client.get_all_positions()
-        unrealized_pl = sum(float(p.unrealized_pl) for p in positions)
-        invested = sum(float(p.avg_entry_price) * float(p.qty) for p in positions)
-        unrealized_pl_pct = (unrealized_pl / invested) * 100 if invested > 0 else 0
-        
-        # Approximate realized P/L assuming 100k starting balance (Alpaca Paper Default)
-        realized_pl = equity - 100000 - unrealized_pl
-        
-        daily_pl = equity - last_equity
-        daily_pl_pct = (daily_pl / last_equity) * 100 if last_equity > 0 else 0
-        
-        # Simulating Weekly/Monthly for the frontend
-        return {
-            "balance_total": balance,
-            "equity": equity,
-            "cash": cash,
-            "market_value": market_value,
-            "invested": invested,
-            "unrealized_pl": unrealized_pl,
-            "unrealized_pl_pct": unrealized_pl_pct,
-            "realized_pl": realized_pl,
-            "daily_pl": daily_pl,
-            "daily_pl_pct": daily_pl_pct,
-            "weekly_pl": daily_pl * 4,
-            "monthly_pl": daily_pl * 20
-        }
+        return broker.get_portfolio_summary()
     except Exception as e:
         return {"error": str(e)}
 
 @router.get("/positions")
 def get_positions():
+    """Retrieve open active positions, sorted by highest unrealized profit."""
     try:
-        positions = trading_client.get_all_positions()
-        pos_list = [{
-            "ticker": p.symbol,
-            "qty": float(p.qty),
-            "market_value": float(p.market_value),
-            "avg_entry_price": float(p.avg_entry_price),
-            "current_price": float(p.current_price),
-            "unrealized_pl": float(p.unrealized_pl),
-            "unrealized_pl_pcnt": float(p.unrealized_plpc) * 100
-        } for p in positions]
-        
-        # Sort from highest gain to highest loss
-        pos_list.sort(key=lambda x: x["unrealized_pl"], reverse=True)
-        return pos_list
+        return broker.get_active_positions()
     except Exception as e:
         return {"error": str(e)}
 
 @router.get("/trades")
 def get_trades():
+    """Retrieve recent closed orders history."""
     try:
-        req = GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=100)
-        orders = trading_client.get_orders(req)
-        
+        orders = broker.get_closed_orders(limit=100)
         trades = [{
             "id": str(o.id),
             "ticker": o.symbol,
@@ -140,7 +92,7 @@ def get_trades():
 
 @router.get("/export/trades")
 def export_trades():
-    """Generates a CSV file of all executed trades for tax purposes."""
+    """Generates a CSV file of all executed trades for tax purposes, converted to EUR."""
     try:
         current_year = datetime.now().year
         after_date = datetime(current_year, 1, 1)
@@ -148,15 +100,13 @@ def export_trades():
         
         all_orders = []
         
-        # Loop to fetch all orders of the year (paginating 500 at a time)
+        # Paginate to fetch all closed orders for the current year
         while True:
-            req = GetOrdersRequest(
-                status=QueryOrderStatus.CLOSED, 
+            batch = broker.get_closed_orders(
                 limit=500,
                 after=after_date,
                 until=current_until
             )
-            batch = trading_client.get_orders(req)
             if not batch:
                 break
                 
@@ -165,27 +115,10 @@ def export_trades():
             if len(batch) < 500:
                 break
                 
-            # Alpaca returns in descending order, we take the date of the oldest for the next page
             current_until = batch[-1].created_at
-        
-        output = io.StringIO()
-        writer = csv.writer(output)
-        
-        # Header for Excel/Sheets
-        writer.writerow(["ID Orden", "Ticker", "Operación", "Cantidad", "Precio Medio Fill", "Estado", "Fecha (UTC)"])
-        
-        for o in all_orders:
-            writer.writerow([
-                str(o.id),
-                o.symbol,
-                o.side.value if o.side else "N/A",
-                float(o.qty) if o.qty else 0,
-                float(o.filled_avg_price) if o.filled_avg_price else 0,
-                o.status.value,
-                o.created_at.strftime("%Y-%m-%d %H:%M:%S") if o.created_at else "N/A"
-            ])
             
-        csv_data = output.getvalue()
+        # Delegate CSV formatting and ECB reference currency conversion to the tax service
+        csv_data = tax_service.generate_tax_csv_content(all_orders, after_date)
         
         return Response(
             content=csv_data,
@@ -207,6 +140,6 @@ def run_bot_manually():
     results = run_bot_all_tickers()
     
     return {
-        "message": f"Ejecución manual del bot finalizada",
+        "message": "Ejecución manual del bot finalizada",
         "results": results
     }
