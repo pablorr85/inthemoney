@@ -31,11 +31,34 @@ uvicorn main:app --reload --port 8000
 The backend API will be available at `http://localhost:8000`. 
 API Documentation (Swagger UI) is automatically generated and can be viewed at `http://localhost:8000/docs`.
 
-**Note on Credentials**: Ensure you have a `.env` file in the `backend` folder containing your Alpaca paper trading keys:
+**Note on Credentials and Environment Variables**: Ensure you have a `.env` file in the `backend` folder containing your credentials. The system supports full configurability for running separate Paper and Live (real-money) trading instances:
+
 ```env
+# Essential Alpaca API Keys (obtained from your Alpaca Dashboard)
 ALPACA_API_KEY=your_api_key_here
 ALPACA_SECRET_KEY=your_secret_key_here
+
+# Trading Mode (True = Paper/Simulated, False = Live/Real Money)
+# Default is True to prevent accidental live execution.
+ALPACA_PAPER=True
+
+# Starting Portfolio Balance (Used for correct P&L dashboard calculations)
+# Default is 100000.0 (Alpaca Paper standard). Adjust to your real deposit (e.g., 500.0) for live trading.
+STARTING_BALANCE=100000.0
+
+# Max Budget Per Trade (Upper price boundary per single asset purchase)
+# Default is 5000.0. For real-money small accounts, limit this to e.g. 50.0.
+MAX_BUDGET_PER_TRADE=5000.0
 ```
+
+### Multi-Instance Raspberry Pi Deployment Guidelines
+
+To run both a **Paper** and a **Live** instance side-by-side on the same server or Raspberry Pi without conflicts:
+1. Clone the project into two distinct directories (e.g., `/home/pi/inthemoney-paper` and `/home/pi/inthemoney-real`). This ensures their local SQLite databases (`history.db`) remain fully isolated.
+2. Maintain separate `.env` files in each directory as described above (ensuring `ALPACA_PAPER=False` for your live folder).
+3. Bind them to different network ports when launching the FastAPI servers:
+   - **Paper instance:** `uvicorn main:app --host 0.0.0.0 --port 8000` (Access at `http://<ip>:8000`)
+   - **Live instance:** `uvicorn main:app --host 0.0.0.0 --port 8001` (Access at `http://<ip>:8001`)
 
 ---
 
