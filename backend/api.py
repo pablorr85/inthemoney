@@ -1,16 +1,11 @@
 from fastapi import APIRouter
 from fastapi.responses import Response
 from datetime import datetime
-import csv
-import io
-from alpaca.trading.requests import GetOrdersRequest
-from alpaca.trading.enums import QueryOrderStatus
+import yfinance as yf
 
 import database
-from client import trading_client
+from services import broker, tax_service
 from bot import run_bot_all_tickers
-import yfinance as yf
-from config import STARTING_BALANCE
 
 router = APIRouter()
 
@@ -19,6 +14,7 @@ ticker_info_cache = {}
 
 @router.get("/ticker/{ticker}/info")
 def get_ticker_info(ticker: str):
+    """Retrieve basic profile info (name, exchange, sector) for a given ticker."""
     if ticker in ticker_info_cache:
         return ticker_info_cache[ticker]
     try:
@@ -53,75 +49,30 @@ def get_ticker_info(ticker: str):
         }
         ticker_info_cache[ticker] = data
         return data
-    except Exception as e:
+    except Exception:
         return {"name": ticker, "exchange": "N/A", "summary": "Info no disponible"}
 
 @router.get("/portfolio/summary")
 def get_portfolio_summary():
+    """Retrieve calculated summary of open balances, equity, and unrealized profit."""
     try:
-        account = trading_client.get_account()
-        balance = float(account.portfolio_value)
-        equity = float(account.equity)
-        last_equity = float(account.last_equity)
-        cash = float(account.cash)
-        market_value = float(account.long_market_value)
-        
-        # Fetch positions to calculate precise invested amount and unrealized P/L
-        positions = trading_client.get_all_positions()
-        unrealized_pl = sum(float(p.unrealized_pl) for p in positions)
-        invested = sum(float(p.avg_entry_price) * float(p.qty) for p in positions)
-        unrealized_pl_pct = (unrealized_pl / invested) * 100 if invested > 0 else 0
-        
-        # Approximate realized P/L assuming configured starting balance
-        realized_pl = equity - STARTING_BALANCE - unrealized_pl
-        
-        daily_pl = equity - last_equity
-        daily_pl_pct = (daily_pl / last_equity) * 100 if last_equity > 0 else 0
-        
-        # Simulating Weekly/Monthly for the frontend
-        return {
-            "balance_total": balance,
-            "equity": equity,
-            "cash": cash,
-            "market_value": market_value,
-            "invested": invested,
-            "unrealized_pl": unrealized_pl,
-            "unrealized_pl_pct": unrealized_pl_pct,
-            "realized_pl": realized_pl,
-            "daily_pl": daily_pl,
-            "daily_pl_pct": daily_pl_pct,
-            "weekly_pl": daily_pl * 4,
-            "monthly_pl": daily_pl * 20
-        }
+        return broker.get_portfolio_summary()
     except Exception as e:
         return {"error": str(e)}
 
 @router.get("/positions")
 def get_positions():
+    """Retrieve open active positions, sorted by highest unrealized profit."""
     try:
-        positions = trading_client.get_all_positions()
-        pos_list = [{
-            "ticker": p.symbol,
-            "qty": float(p.qty),
-            "market_value": float(p.market_value),
-            "avg_entry_price": float(p.avg_entry_price),
-            "current_price": float(p.current_price),
-            "unrealized_pl": float(p.unrealized_pl),
-            "unrealized_pl_pcnt": float(p.unrealized_plpc) * 100
-        } for p in positions]
-        
-        # Sort from highest gain to highest loss
-        pos_list.sort(key=lambda x: x["unrealized_pl"], reverse=True)
-        return pos_list
+        return broker.get_active_positions()
     except Exception as e:
         return {"error": str(e)}
 
 @router.get("/trades")
 def get_trades():
+    """Retrieve recent closed orders history."""
     try:
-        req = GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=100)
-        orders = trading_client.get_orders(req)
-        
+        orders = broker.get_closed_orders(limit=100)
         trades = [{
             "id": str(o.id),
             "ticker": o.symbol,
@@ -141,7 +92,7 @@ def get_trades():
 
 @router.get("/export/trades")
 def export_trades():
-    """Generates a CSV file of all executed trades for tax purposes, with automatic USD to EUR conversion."""
+    """Generates a CSV file of all executed trades for tax purposes, converted to EUR."""
     try:
         current_year = datetime.now().year
         after_date = datetime(current_year, 1, 1)
@@ -149,15 +100,13 @@ def export_trades():
         
         all_orders = []
         
-        # Loop to fetch all orders of the year (paginating 500 at a time)
+        # Paginate to fetch all closed orders for the current year
         while True:
-            req = GetOrdersRequest(
-                status=QueryOrderStatus.CLOSED, 
+            batch = broker.get_closed_orders(
                 limit=500,
                 after=after_date,
                 until=current_until
             )
-            batch = trading_client.get_orders(req)
             if not batch:
                 break
                 
@@ -166,120 +115,10 @@ def export_trades():
             if len(batch) < 500:
                 break
                 
-            # Alpaca returns in descending order, we take the date of the oldest for the next page
             current_until = batch[-1].created_at
-        
-        # Fetch historical EUR/USD rates (official ECB rates preferred)
-        from datetime import timedelta
-        import pandas as pd
-        import urllib.request
-        import json
-        
-        rates_map = {}
-        ecb_success = False
-        
-        # Method 1: Try official ECB reference rates via Frankfurter API
-        try:
-            start_str = (after_date - timedelta(days=15)).strftime("%Y-%m-%d")
-            end_str = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-            url = f"https://api.frankfurter.dev/v1/{start_str}..{end_str}?from=USD&to=EUR"
-            req = urllib.request.Request(url, headers={'User-Agent': 'InTheMoneyTaxBot/1.0'})
-            with urllib.request.urlopen(req, timeout=5) as response:
-                data = json.loads(response.read().decode())
-                if 'rates' in data:
-                    for d_str, rates in data['rates'].items():
-                        if 'EUR' in rates and float(rates['EUR']) > 0:
-                            # Convert 1 USD = X EUR into 1 EUR = Y USD (ECB reference format)
-                            rates_map[d_str] = 1.0 / float(rates['EUR'])
-                    ecb_success = True
-                    print(f"[Tax CSV] Successfully fetched exact ECB rates from Frankfurter API.")
-        except Exception as e:
-            print(f"[Tax CSV] Frankfurter ECB API failed, trying Yahoo Finance fallback: {e}")
             
-        # Method 2: Fallback to yfinance EURUSD=X if ECB API failed
-        if not ecb_success:
-            try:
-                rates_start = after_date - timedelta(days=15)
-                rates_df = yf.download(
-                    "EURUSD=X", 
-                    start=rates_start.strftime("%Y-%m-%d"), 
-                    end=(datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d"), 
-                    multi_level_index=False, 
-                    threads=False
-                )
-                if not rates_df.empty and 'Close' in rates_df:
-                    close_col = rates_df['Close']
-                    for idx, val in close_col.items():
-                        date_str = idx.strftime("%Y-%m-%d")
-                        try:
-                            if isinstance(val, pd.Series):
-                                float_val = float(val.iloc[0])
-                            else:
-                                float_val = float(val)
-                            if pd.notna(float_val) and float_val > 0:
-                                rates_map[date_str] = float_val
-                        except Exception:
-                            pass
-            except Exception as e:
-                print(f"[Tax CSV] Error downloading exchange rates from yfinance: {e}")
-
-        output = io.StringIO()
-        writer = csv.writer(output)
-        
-        # Header for Spanish Tax purposes
-        writer.writerow([
-            "ID Orden", 
-            "Ticker", 
-            "Operación", 
-            "Cantidad", 
-            "Precio Fill (USD)", 
-            "Total (USD)", 
-            "Tipo Cambio (EUR/USD)", 
-            "Fecha Tipo Cambio",
-            "Precio Fill (EUR)", 
-            "Total (EUR)", 
-            "Estado", 
-            "Fecha Orden (UTC)"
-        ])
-        
-        for o in all_orders:
-            # Resolve the closest available exchange rate for the order's date
-            rate = 1.0
-            rate_used_date = "N/A"
-            if o.created_at:
-                # Loop back up to 15 days to handle weekends and long market holidays
-                for i in range(15):
-                    check_date = (o.created_at - timedelta(days=i)).strftime("%Y-%m-%d")
-                    if check_date in rates_map:
-                        rate = rates_map[check_date]
-                        rate_used_date = check_date
-                        break
-            
-            qty = float(o.qty) if o.qty else 0.0
-            price_usd = float(o.filled_avg_price) if o.filled_avg_price else 0.0
-            total_usd = qty * price_usd
-            
-            # Convert to Euros: EUR = USD / (EUR/USD rate)
-            # e.g., if 1 EUR = 1.08 USD, then $108 USD = 100 EUR
-            price_eur = price_usd / rate if rate > 0 else price_usd
-            total_eur = total_usd / rate if rate > 0 else total_usd
-            
-            writer.writerow([
-                str(o.id),
-                o.symbol,
-                o.side.value if o.side else "N/A",
-                qty,
-                round(price_usd, 4),
-                round(total_usd, 2),
-                round(rate, 4) if rate_used_date != "N/A" else "N/A",
-                rate_used_date,
-                round(price_eur, 4),
-                round(total_eur, 2),
-                o.status.value,
-                o.created_at.strftime("%Y-%m-%d %H:%M:%S") if o.created_at else "N/A"
-            ])
-            
-        csv_data = output.getvalue()
+        # Delegate CSV formatting and ECB reference currency conversion to the tax service
+        csv_data = tax_service.generate_tax_csv_content(all_orders, after_date)
         
         return Response(
             content=csv_data,
@@ -301,6 +140,6 @@ def run_bot_manually():
     results = run_bot_all_tickers()
     
     return {
-        "message": f"Ejecución manual del bot finalizada",
+        "message": "Ejecución manual del bot finalizada",
         "results": results
     }

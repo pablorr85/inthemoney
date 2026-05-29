@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import Header from './components/Header';
+import SummaryCards from './components/SummaryCards';
+import PortfolioChart from './components/PortfolioChart';
+import PositionsTable from './components/PositionsTable';
 
 function App() {
   const [summary, setSummary] = useState(null);
@@ -9,7 +12,6 @@ function App() {
   const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isBotRunning, setIsBotRunning] = useState(false);
-  const [tickerInfo, setTickerInfo] = useState({});
 
   const fetchDashboardData = async () => {
     try {
@@ -49,17 +51,6 @@ function App() {
     }
   };
 
-  const handleMouseEnter = async (ticker) => {
-    if (!tickerInfo[ticker]) {
-      try {
-        const response = await axios.get(`/api/ticker/${ticker}/info`);
-        setTickerInfo(prev => ({...prev, [ticker]: response.data}));
-      } catch (err) {
-        setTickerInfo(prev => ({...prev, [ticker]: {name: ticker, exchange: "N/A", summary: "Error al cargar información"}}));
-      }
-    }
-  };
-
   if (loading) {
     return (
       <div className="loading-container">
@@ -73,193 +64,17 @@ function App() {
 
   return (
     <div className="container">
-      <header className="header">
-        <div className="header-titles">
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-            <img src="/logo.png" alt="InTheMoney Logo" style={{ width: '48px', height: '48px', borderRadius: '12px', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' }} />
-            InTheMoney Dashboard
-          </h1>
-          <p>Estrategia Diaria: SMA 9x21 | RSI &lt; 75</p>
-        </div>
-        <div className="header-actions">
-          <button 
-            className="btn-export" 
-            onClick={() => window.open('/api/export/trades')}
-          >
-            📊 CSV (Hacienda)
-          </button>
-          <button 
-            className="btn-run" 
-            onClick={handleRunBot}
-            disabled={isBotRunning}
-          >
-            {isBotRunning ? (
-              <>
-                <span className="spinner" style={{ width: '20px', height: '20px', borderWidth: '2px' }}></span>
-                Ejecutando...
-              </>
-            ) : (
-              <>🚀 Ejecutar Bot</>
-            )}
-          </button>
-        </div>
-      </header>
+      {/* Upper Navigation and Actions branding */}
+      <Header isBotRunning={isBotRunning} onRunBot={handleRunBot} />
 
-      {/* 1. Summary Cards */}
-      <div className="grid-cards detailed-summary">
-        <div className="card summary-card">
-          <h3>💰 Liquidez (Cash)</h3>
-          <h2 className="main-value">${summary?.cash?.toFixed(2) || '0.00'}</h2>
-          <p className="subtitle">Capital disponible en cuenta</p>
-          <div className="metric-row" style={{marginTop: '1rem'}}>
-            <span>Balance Total:</span>
-            <span>${summary?.balance_total?.toFixed(2) || '0.00'}</span>
-          </div>
-        </div>
+      {/* Main KPI metrics summary */}
+      <SummaryCards summary={summary} totalTradesCount={totalTradesCount} />
 
-        <div className="card summary-card">
-          <h3>📈 Posiciones Abiertas</h3>
-          <div className="metric-row">
-            <span>Dinero Invertido:</span>
-            <span>${summary?.invested?.toFixed(2) || '0.00'}</span>
-          </div>
-          <div className="metric-row">
-            <span>Valor Actual:</span>
-            <span>${summary?.market_value?.toFixed(2) || '0.00'}</span>
-          </div>
-          <div className="metric-row highlight" style={{marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)', color: summary?.unrealized_pl >= 0 ? 'var(--success)' : 'var(--danger)'}}>
-            <span>Beneficio Latente:</span>
-            <span style={{fontWeight: 'bold', color: summary?.unrealized_pl >= 0 ? 'var(--success)' : 'var(--danger)'}}>
-              {summary?.unrealized_pl >= 0 ? '+' : ''}${summary?.unrealized_pl?.toFixed(2) || '0.00'} ({summary?.unrealized_pl_pct >= 0 ? '+' : ''}{summary?.unrealized_pl_pct?.toFixed(2) || '0.00'}%)
-            </span>
-          </div>
-        </div>
+      {/* Historical Equity Evolution Chart */}
+      <PortfolioChart chartData={chartData} />
 
-        <div className="card summary-card">
-          <h3>🏦 P&L Realizado</h3>
-          <h2 className={summary?.realized_pl >= 0 ? 'value-positive' : 'value-negative'}>
-            {summary?.realized_pl >= 0 ? '+' : ''}${summary?.realized_pl?.toFixed(2) || '0.00'}
-          </h2>
-          <p className="subtitle">P&L Histórico (Operaciones Cerradas)</p>
-          <div className="metric-row highlight" style={{marginTop: '1rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)'}}>
-            <span>P&L de Hoy:</span>
-            <span style={{ color: summary?.daily_pl >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-              {summary?.daily_pl >= 0 ? '+' : ''}${summary?.daily_pl?.toFixed(2) || '0.00'}
-            </span>
-          </div>
-        </div>
-
-        <div className="card summary-card">
-          <h3>⚡ Actividad del Bot</h3>
-          <h2 className="main-value">{totalTradesCount}</h2>
-          <p className="subtitle">Operaciones totales cerradas</p>
-          <div className="metric-row highlight" style={{marginTop: '1rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)'}}>
-            <span>Estado:</span>
-            <span className="value-positive">Activo y vigilando</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 2. Recharts Graph Component */}
-      <div className="card chart-card">
-        <h3>Evolución del Portfolio (Datos reales)</h3>
-        {chartData.length === 0 ? (
-          <div className="empty-state">
-            Aún no hay datos históricos. Se registrarán automáticamente cada vez que ejecutes el bot.
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height="85%">
-            <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)"/>
-              <XAxis 
-                dataKey="name" 
-                axisLine={false} 
-                tickLine={false} 
-                stroke="#94a3b8" 
-                tickFormatter={(tick) => {
-                  if (!tick) return '';
-                  const parts = tick.split('-');
-                  if (parts.length === 3) {
-                    return `${parts[2]}/${parts[1]}/${parts[0]}`;
-                  }
-                  return tick;
-                }}
-                angle={-45}
-                textAnchor="end"
-                height={60}
-                tick={{ fontSize: 12 }}
-              />
-              <YAxis axisLine={false} tickLine={false} domain={['auto', 'auto']} stroke="#94a3b8" />
-              <Tooltip 
-                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#f8fafc' }} 
-                itemStyle={{ color: '#60a5fa' }}
-                labelFormatter={(label) => {
-                  if (!label) return '';
-                  const parts = label.split('-');
-                  if (parts.length === 3) {
-                    return `${parts[2]}/${parts[1]}/${parts[0]}`;
-                  }
-                  return label;
-                }}
-                formatter={(v) => [`$${v.toFixed(2)}`, 'Equity']}
-              />
-              <Line type="monotone" dataKey="equity" stroke="#60a5fa" strokeWidth={3} dot={{ r: 4, fill: '#60a5fa' }} activeDot={{ r: 8, fill: '#3b82f6' }}/>
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-
-      {/* 3. Active Positions Table */}
-      <div className="card">
-        <h3>Posiciones Activas (Valores Comprados)</h3>
-        <div className="table-container">
-          <table className="styled-table">
-            <thead>
-              <tr>
-                <th>Ticker</th>
-                <th>Cant.</th>
-                <th>Precio Compra</th>
-                <th>Precio Actual</th>
-                <th>Ganancia/Pérdida</th>
-              </tr>
-            </thead>
-            <tbody>
-              {positions.length > 0 ? positions.map((pos) => (
-                <tr key={pos.ticker}>
-                  <td 
-                    className="ticker-cell"
-                    onMouseEnter={() => handleMouseEnter(pos.ticker)}
-                  >
-                    {pos.ticker}
-                    <div className="ticker-tooltip">
-                      {tickerInfo[pos.ticker] ? (
-                        <>
-                          <div className="tooltip-name">{tickerInfo[pos.ticker].name}</div>
-                          <div className="tooltip-exchange">{tickerInfo[pos.ticker].exchange}</div>
-                          <div className="tooltip-summary">{tickerInfo[pos.ticker].summary}</div>
-                        </>
-                      ) : (
-                        <div className="tooltip-loading">
-                          <span className="spinner" style={{width: '12px', height: '12px', borderWidth: '2px'}}></span>
-                          Cargando...
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                  <td>{pos.qty}</td>
-                  <td>${pos.avg_entry_price.toFixed(2)}</td>
-                  <td>${pos.current_price.toFixed(2)}</td>
-                  <td className={pos.unrealized_pl >= 0 ? 'value-positive' : 'value-negative'} style={{ fontWeight: 'bold' }}>
-                    ${pos.unrealized_pl.toFixed(2)} ({pos.unrealized_pl_pcnt.toFixed(2)}%)
-                  </td>
-                </tr>
-              )) : (
-                <tr><td colSpan="5" className="empty-state">El bot no tiene posiciones en este momento.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* Active held positions table */}
+      <PositionsTable positions={positions} />
     </div>
   );
 }
