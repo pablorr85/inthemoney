@@ -10,6 +10,7 @@ import database
 from client import trading_client
 from bot import run_bot_all_tickers
 import yfinance as yf
+from config import STARTING_BALANCE
 
 router = APIRouter()
 
@@ -71,8 +72,8 @@ def get_portfolio_summary():
         invested = sum(float(p.avg_entry_price) * float(p.qty) for p in positions)
         unrealized_pl_pct = (unrealized_pl / invested) * 100 if invested > 0 else 0
         
-        # Approximate realized P/L assuming 100k starting balance (Alpaca Paper Default)
-        realized_pl = equity - 100000 - unrealized_pl
+        # Approximate realized P/L assuming configured starting balance
+        realized_pl = equity - STARTING_BALANCE - unrealized_pl
         
         daily_pl = equity - last_equity
         daily_pl_pct = (daily_pl / last_equity) * 100 if last_equity > 0 else 0
@@ -140,7 +141,7 @@ def get_trades():
 
 @router.get("/export/trades")
 def export_trades():
-    """Generates a CSV file of all executed trades for tax purposes."""
+    """Generates a CSV file of all executed trades for tax purposes, with automatic USD to EUR conversion."""
     try:
         current_year = datetime.now().year
         after_date = datetime(current_year, 1, 1)
@@ -168,19 +169,112 @@ def export_trades():
             # Alpaca returns in descending order, we take the date of the oldest for the next page
             current_until = batch[-1].created_at
         
+        # Fetch historical EUR/USD rates (official ECB rates preferred)
+        from datetime import timedelta
+        import pandas as pd
+        import urllib.request
+        import json
+        
+        rates_map = {}
+        ecb_success = False
+        
+        # Method 1: Try official ECB reference rates via Frankfurter API
+        try:
+            start_str = (after_date - timedelta(days=15)).strftime("%Y-%m-%d")
+            end_str = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+            url = f"https://api.frankfurter.dev/v1/{start_str}..{end_str}?from=USD&to=EUR"
+            req = urllib.request.Request(url, headers={'User-Agent': 'InTheMoneyTaxBot/1.0'})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode())
+                if 'rates' in data:
+                    for d_str, rates in data['rates'].items():
+                        if 'EUR' in rates and float(rates['EUR']) > 0:
+                            # Convert 1 USD = X EUR into 1 EUR = Y USD (ECB reference format)
+                            rates_map[d_str] = 1.0 / float(rates['EUR'])
+                    ecb_success = True
+                    print(f"[Tax CSV] Successfully fetched exact ECB rates from Frankfurter API.")
+        except Exception as e:
+            print(f"[Tax CSV] Frankfurter ECB API failed, trying Yahoo Finance fallback: {e}")
+            
+        # Method 2: Fallback to yfinance EURUSD=X if ECB API failed
+        if not ecb_success:
+            try:
+                rates_start = after_date - timedelta(days=15)
+                rates_df = yf.download(
+                    "EURUSD=X", 
+                    start=rates_start.strftime("%Y-%m-%d"), 
+                    end=(datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d"), 
+                    multi_level_index=False, 
+                    threads=False
+                )
+                if not rates_df.empty and 'Close' in rates_df:
+                    close_col = rates_df['Close']
+                    for idx, val in close_col.items():
+                        date_str = idx.strftime("%Y-%m-%d")
+                        try:
+                            if isinstance(val, pd.Series):
+                                float_val = float(val.iloc[0])
+                            else:
+                                float_val = float(val)
+                            if pd.notna(float_val) and float_val > 0:
+                                rates_map[date_str] = float_val
+                        except Exception:
+                            pass
+            except Exception as e:
+                print(f"[Tax CSV] Error downloading exchange rates from yfinance: {e}")
+
         output = io.StringIO()
         writer = csv.writer(output)
         
-        # Header for Excel/Sheets
-        writer.writerow(["ID Orden", "Ticker", "Operación", "Cantidad", "Precio Medio Fill", "Estado", "Fecha (UTC)"])
+        # Header for Spanish Tax purposes
+        writer.writerow([
+            "ID Orden", 
+            "Ticker", 
+            "Operación", 
+            "Cantidad", 
+            "Precio Fill (USD)", 
+            "Total (USD)", 
+            "Tipo Cambio (EUR/USD)", 
+            "Fecha Tipo Cambio",
+            "Precio Fill (EUR)", 
+            "Total (EUR)", 
+            "Estado", 
+            "Fecha Orden (UTC)"
+        ])
         
         for o in all_orders:
+            # Resolve the closest available exchange rate for the order's date
+            rate = 1.0
+            rate_used_date = "N/A"
+            if o.created_at:
+                # Loop back up to 15 days to handle weekends and long market holidays
+                for i in range(15):
+                    check_date = (o.created_at - timedelta(days=i)).strftime("%Y-%m-%d")
+                    if check_date in rates_map:
+                        rate = rates_map[check_date]
+                        rate_used_date = check_date
+                        break
+            
+            qty = float(o.qty) if o.qty else 0.0
+            price_usd = float(o.filled_avg_price) if o.filled_avg_price else 0.0
+            total_usd = qty * price_usd
+            
+            # Convert to Euros: EUR = USD / (EUR/USD rate)
+            # e.g., if 1 EUR = 1.08 USD, then $108 USD = 100 EUR
+            price_eur = price_usd / rate if rate > 0 else price_usd
+            total_eur = total_usd / rate if rate > 0 else total_usd
+            
             writer.writerow([
                 str(o.id),
                 o.symbol,
                 o.side.value if o.side else "N/A",
-                float(o.qty) if o.qty else 0,
-                float(o.filled_avg_price) if o.filled_avg_price else 0,
+                qty,
+                round(price_usd, 4),
+                round(total_usd, 2),
+                round(rate, 4) if rate_used_date != "N/A" else "N/A",
+                rate_used_date,
+                round(price_eur, 4),
+                round(total_eur, 2),
                 o.status.value,
                 o.created_at.strftime("%Y-%m-%d %H:%M:%S") if o.created_at else "N/A"
             ])
