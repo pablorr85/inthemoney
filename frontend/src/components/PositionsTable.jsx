@@ -50,7 +50,7 @@ function PositionsTable({ positions }) {
                         </>
                       ) : (
                         <div className="tooltip-loading">
-                          <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px' }}></span>
+                          <span className="spinner-sm"></span>
                           Cargando...
                         </div>
                       )}
@@ -59,10 +59,7 @@ function PositionsTable({ positions }) {
                   <td>{pos.qty}</td>
                   <td>${pos.avg_entry_price.toFixed(2)}</td>
                   <td>${pos.current_price.toFixed(2)}</td>
-                  <td 
-                    className={pos.unrealized_pl >= 0 ? 'value-positive' : 'value-negative'} 
-                    style={{ fontWeight: 'bold' }}
-                  >
+                  <td className={`font-bold ${pos.unrealized_pl >= 0 ? 'value-positive' : 'value-negative'}`}>
                     ${pos.unrealized_pl.toFixed(2)} ({pos.unrealized_pl_pcnt.toFixed(2)}%)
                   </td>
                 </tr>
