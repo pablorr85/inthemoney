@@ -1,25 +1,53 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 function Header({ isBotRunning, onRunBot }) {
+  const startYear = 2026;
+  const currentYear = new Date().getFullYear();
+  
+  // Generate list of years from currentYear down to 2026
+  const years = [];
+  for (let y = currentYear; y >= startYear; y--) {
+    years.push(y);
+  }
+
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+
   return (
     <header className="header">
       <div className="header-titles">
-        <h1 style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+        <h1>
           <img 
             src="/logo.png" 
             alt="InTheMoney Logo" 
-            style={{ width: '48px', height: '48px', borderRadius: '12px', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' }} 
+            className="header-logo"
           />
           InTheMoney Dashboard
         </h1>
         <p>Estrategia Diaria: SMA 9x21 | RSI &lt; 75</p>
       </div>
       <div className="header-actions">
+        {/* Dynamic Year Selector styled for the dashboard aesthetics */}
+        <div className="year-selector-container">
+          <span className="year-selector-label">Año:</span>
+          <select 
+            value={selectedYear} 
+            onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+            className="year-selector-select"
+          >
+            {years.map(y => (
+              <option key={y} value={y} style={{ backgroundColor: '#1e293b', color: '#f8fafc' }}>
+                {y}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <button 
           className="btn-export" 
-          onClick={() => window.open('/api/export/trades')}
+          onClick={() => window.open(`/api/export/trades?year=${selectedYear}`)}
+          title={`Exportar operaciones del año ${selectedYear} para Hacienda`}
         >
-          📊 CSV (Hacienda)
+          📊 CSV
         </button>
         <button 
           className="btn-run" 

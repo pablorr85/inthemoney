@@ -91,16 +91,24 @@ def get_trades():
         return {"error": str(e)}
 
 @router.get("/export/trades")
-def export_trades():
-    """Generates a CSV file of all executed trades for tax purposes, converted to EUR."""
+def export_trades(year: int = None):
+    """Generates a CSV file of executed trades for a specific year (defaults to current year), converted to EUR."""
     try:
-        current_year = datetime.now().year
-        after_date = datetime(current_year, 1, 1)
-        current_until = datetime.now()
+        from datetime import timezone
+        
+        if not year:
+            year = datetime.now().year
+            
+        after_date = datetime(year, 1, 1, tzinfo=timezone.utc)
+        
+        if year == datetime.now().year:
+            current_until = datetime.now(timezone.utc)
+        else:
+            current_until = datetime(year, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
         
         all_orders = []
         
-        # Paginate to fetch all closed orders for the current year
+        # Paginate to fetch all closed orders for the requested year
         while True:
             batch = broker.get_closed_orders(
                 limit=500,
@@ -123,7 +131,7 @@ def export_trades():
         return Response(
             content=csv_data,
             media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename=inthemoney_operaciones_{current_year}.csv"}
+            headers={"Content-Disposition": f"attachment; filename=inthemoney_operaciones_{year}.csv"}
         )
     except Exception as e:
         return {"error": str(e)}
