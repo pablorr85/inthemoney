@@ -70,9 +70,33 @@ def get_positions():
 
 @router.get("/trades")
 def get_trades():
-    """Retrieve recent closed orders history."""
+    """Retrieve recent closed orders history for the current year."""
     try:
-        orders = broker.get_closed_orders(limit=100)
+        from datetime import timezone
+        
+        year = datetime.now().year
+        after_date = datetime(year, 1, 1, tzinfo=timezone.utc)
+        current_until = datetime.now(timezone.utc)
+        
+        all_orders = []
+        
+        # Paginate to fetch all closed orders for the current year
+        while True:
+            batch = broker.get_closed_orders(
+                limit=500,
+                after=after_date,
+                until=current_until
+            )
+            if not batch:
+                break
+                
+            all_orders.extend(batch)
+            
+            if len(batch) < 500:
+                break
+                
+            current_until = batch[-1].created_at
+            
         trades = [{
             "id": str(o.id),
             "ticker": o.symbol,
@@ -81,7 +105,7 @@ def get_trades():
             "filled_avg_price": float(o.filled_avg_price) if o.filled_avg_price else 0,
             "status": o.status.value,
             "created_at": o.created_at
-        } for o in orders]
+        } for o in all_orders]
         
         return {
             "total_trades": len(trades),
@@ -89,6 +113,7 @@ def get_trades():
         }
     except Exception as e:
         return {"error": str(e)}
+
 
 @router.get("/export/trades")
 def export_trades(year: int = None):
